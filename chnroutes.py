@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import re
 import urllib2
@@ -62,6 +63,57 @@ def generate_linux(metric):
 
     print "For pptp only, please copy the file ip-pre-up to the folder/etc/ppp," \
           "and copy the file ip-down to the folder /etc/ppp/ip-down.d."
+
+
+def generate_miwifi(metric):
+    results = fetch_ip_data()
+    upscript_header=textwrap.dedent("""\
+    #!/bin/bash
+    export PATH="/bin:/sbin:/usr/sbin:/usr/bin"
+    
+    OLDGW=`ip route show | grep '^default' | sed -e 's/default via \\([^ ]*\\).*/\\1/'`
+    DEVICE=`ip route show | grep '^default' | sed -e 's/.*dev \\([^ ]*\\).*/\\1/'`
+    
+    if [ $OLDGW == '' ]; then
+        exit 0
+    fi
+    
+    if [ ! -e /tmp/vpn_oldgw ]; then
+        echo $OLDGW > /tmp/vpn_oldgw
+    fi
+
+    if [ ! -e /tmp/vpn_olddev ]; then
+        echo $DEVICE > /tmp/vpn_olddev
+    fi
+    
+    """)
+    
+    downscript_header=textwrap.dedent("""\
+    #!/bin/bash
+    export PATH="/bin:/sbin:/usr/sbin:/usr/bin"
+    
+    OLDGW=`cat /tmp/vpn_oldgw`
+    DEVICE='cat /tmp/vpn_olddev'
+    
+    """)
+    
+    upfile=open('ip-pre-up','w')
+    downfile=open('ip-down','w')
+    
+    upfile.write(upscript_header)
+    upfile.write('\n')
+    downfile.write(downscript_header)
+    downfile.write('\n')
+    
+    for ip,_,mask in results:
+        upfile.write('ip route add %s/%s via $OLDGW dev $DEVICE table vpn\n'%(ip,mask))
+        downfile.write('ip route del %s/%s via $OLDGW dev $DEVICE table vpn\n'%(ip,mask))
+
+    downfile.write('rm /tmp/vpn_oldgw\n')
+    downfile.write('rm /tmp/vpn_olddev\n')
+    print "For pptp only, please copy the file ip-pre-up to the folder/etc/ppp," \
+          "and copy the file ip-down to the folder /etc/ppp/ip-down.d."
+
 
 def generate_mac(metric):
     results=fetch_ip_data()
@@ -255,6 +307,8 @@ if __name__=='__main__':
         generate_win(args.metric)
     elif args.platform.lower() == 'android':
         generate_android(args.metric)
+    elif args.platform.lower() == "miwifi":
+        generate_miwifi(args.metric)
     else:
         print>>sys.stderr, "Platform %s is not supported."%args.platform
         exit(1)
